@@ -1,0 +1,46 @@
+name: Arena leaderboard monitor
+
+on:
+  schedule:
+    # 北京时间每天 09:00
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check Arena leaderboards
+        env:
+          ARENA_SMTP_HOST: ${{ secrets.ARENA_SMTP_HOST }}
+          ARENA_SMTP_PORT: ${{ secrets.ARENA_SMTP_PORT }}
+          ARENA_SMTP_SECURITY: ${{ secrets.ARENA_SMTP_SECURITY }}
+          ARENA_SMTP_USERNAME: ${{ secrets.ARENA_SMTP_USERNAME }}
+          ARENA_SMTP_PASSWORD: ${{ secrets.ARENA_SMTP_PASSWORD }}
+          ARENA_MAIL_FROM: ${{ secrets.ARENA_MAIL_FROM }}
+          ARENA_MAIL_TO: ${{ secrets.ARENA_MAIL_TO }}
+        run: |
+          if [[ -n "$ARENA_SMTP_HOST" && -n "$ARENA_SMTP_USERNAME" && -n "$ARENA_SMTP_PASSWORD" && -n "$ARENA_MAIL_FROM" && -n "$ARENA_MAIL_TO" ]]; then
+            python src/arena_monitor.py check --send-email
+          else
+            python src/arena_monitor.py check
+          fi
+
+      - name: Persist snapshots and reports
+        run: |
+          git config user.name "arena-monitor"
+          git config user.email "arena-monitor@users.noreply.github.com"
+          git add data reports
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update Arena leaderboard snapshot"
+            git push
+          fi

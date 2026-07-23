@@ -1,0 +1,100 @@
+# Arena 五类榜单监控 V1
+
+这是从《Arena 榜单分析与监控》对话中收敛出的首版：每天检查 5 个 Arena 一级榜单，只在命中 4 类高价值变化时生成简报。
+
+## 首版范围
+
+| 业务类别 | 官方数据 subset | 监控分类 |
+|---|---|---|
+| Text | `text_style_control` | Overall |
+| Agent | `agent` | Overall |
+| WebDev | `webdev` | Overall |
+| Text-to-Image | `text_to_image` | Overall |
+| Image Edit | `image_edit` | Overall |
+
+V1 只通知：
+
+1. 新模型进入榜单
+2. 模型从榜单消失
+3. 榜首变化
+4. 进入或跌出 Top 3 / Top 10
+
+普通名次波动、分数变化、置信区间变化和票数增长暂不通知。模型从榜单消失时只写“消失”；除非 Arena 官方明确说明，否则不自动判断为“弃用”。
+
+## 本地运行
+
+项目只使用 Python 标准库，不需要安装依赖。
+
+```bash
+python3 src/arena_monitor.py check
+```
+
+首次运行会：
+
+- 获取 5 类榜单的官方最新 Overall 数据；
+- 保存不可变快照和 `data/latest.json`；
+- 生成当前 Top 10 的基线概览；
+- 不发送“变化”邮件，因为尚无上一版可比。
+
+第二次及以后运行会：
+
+- 官方数据没有变化：不写新快照，不生成简报；
+- 数据有变化但未命中 4 类事件：只更新快照；
+- 命中事件：在 `reports/` 生成 Markdown 和 HTML 简报；
+- 加上 `--send-email`：在命中事件时发送邮件。
+
+## 当前已启用的每日任务
+
+Codex 中已经启用“**Arena 五类榜单每日监控**”：
+
+- 北京时间每天 09:00 运行；
+- 在本目录执行监控程序；
+- 只有命中 4 类重要变化时，才通过已连接的 Gmail 发给当前账户自己；
+- 首次基线、无新数据或只有普通名次变化时，不发邮件；
+- 采集或发信失败时会明确报错，不会伪装成“无变化”。
+
+## 独立 SMTP 方式（可选）
+
+如果以后不通过 Codex 运行，也可以使用程序内置的 SMTP 发信。复制 `.env.example` 中的变量到本机环境或 GitHub Actions Secrets。必填项：
+
+- `ARENA_SMTP_HOST`
+- `ARENA_SMTP_PORT`
+- `ARENA_SMTP_SECURITY`：`starttls`、`ssl` 或 `none`
+- `ARENA_SMTP_USERNAME`
+- `ARENA_SMTP_PASSWORD`
+- `ARENA_MAIL_FROM`
+- `ARENA_MAIL_TO`
+
+例如 Gmail SMTP 需要开启两步验证并使用 App Password，不应使用账户主密码。环境变量准备好后运行：
+
+```bash
+python3 src/arena_monitor.py check --send-email
+```
+
+## GitHub Actions 方式（可选）
+
+`.github/workflows/arena-monitor.yml` 已配置为北京时间每天 09:00 检查一次，也支持手动触发。它会把历史快照和生成的简报提交回私有仓库，因此仓库的 Actions 需要有写入权限。
+
+使用时：
+
+1. 把本目录提交到一个私有 GitHub 仓库。
+2. 在仓库 Secrets 中添加上述邮件变量。
+3. 手动运行一次 workflow，建立初始基线。
+4. 之后每天自动检查；无重要变化时不发邮件。
+
+## 模型改名
+
+V1 默认用规范化后的模型名称识别同一模型。若官方改名，可在 `config/model_aliases.json` 添加别名，避免被误判为“一删一增”：
+
+```json
+{
+  "旧名称": "统一模型标识",
+  "新名称": "统一模型标识"
+}
+```
+
+## 数据来源
+
+- [Arena 官方榜单](https://arena.ai/leaderboard)
+- [Arena 官方 Hugging Face 历史榜单数据集](https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset)
+- [Arena Leaderboard Changelog](https://arena.ai/blog/leaderboard-changelog/)
