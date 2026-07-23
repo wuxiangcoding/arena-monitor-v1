@@ -89,5 +89,60 @@ class ChangeDetectionTests(unittest.TestCase):
         self.assertEqual(boundaries, [3, 10])
 
 
+class FeishuTests(unittest.TestCase):
+    def test_card_contains_change_and_source_link(self):
+        event = arena_monitor.ChangeEvent(
+            board="webdev",
+            kind="entered_top",
+            model="Alpha",
+            old_rank=4,
+            new_rank=3,
+            boundary=3,
+        )
+        snapshot = {
+            "fetched_at": "2026-07-23T14:00:00Z",
+            "boards": {
+                "webdev": {
+                    "publish_date": "2026-07-23",
+                }
+            },
+        }
+
+        card = arena_monitor.build_feishu_card([event], snapshot)
+        serialized = str(card)
+
+        self.assertIn("Arena 榜单变动简报", serialized)
+        self.assertIn("Alpha", serialized)
+        self.assertIn("Top 3", serialized)
+        self.assertIn(arena_monitor.BOARDS["webdev"]["url"], serialized)
+
+    def test_feishu_sender_uses_interactive_card(self):
+        calls = []
+
+        def fake_post(url, payload):
+            calls.append((url, payload))
+            return {"code": 0, "msg": "success"}
+
+        arena_monitor.send_feishu_card(
+            "https://example.invalid/webhook",
+            {"elements": []},
+            post=fake_post,
+        )
+
+        self.assertEqual(calls[0][1]["msg_type"], "interactive")
+        self.assertEqual(calls[0][1]["card"], {"elements": []})
+
+    def test_feishu_sender_raises_on_api_error(self):
+        def fake_post(url, payload):
+            return {"code": 19024, "msg": "Key Words Not Found"}
+
+        with self.assertRaisesRegex(RuntimeError, "19024"):
+            arena_monitor.send_feishu_card(
+                "https://example.invalid/webhook",
+                {"elements": []},
+                post=fake_post,
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

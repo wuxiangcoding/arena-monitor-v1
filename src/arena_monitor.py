@@ -130,6 +130,24 @@ def request_json(url: str, retries: int = 3) -> dict[str, Any]:
     raise RuntimeError(f"请求 Arena 官方数据失败：{last_error}") from last_error
 
 
+def post_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json; charset=utf-8",
+            "User-Agent": "arena-monitor-v1/1.0",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return json.load(response)
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+        raise RuntimeError(f"飞书推送请求失败：{type(exc).__name__}") from exc
+
+
 def fetch_board(
     board_slug: str,
     request: Callable[[str], dict[str, Any]] = request_json,
@@ -469,11 +487,138 @@ def markdown_to_email_html(
     )
 
 
+def build_feishu_card(
+    events: list[ChangeEvent],
+    current_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    changed_boards = {event.board for event in events}
+    elements: list[dict[str, Any]] = [
+        {
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": (
+                    f"**{len(changed_boards)} 类榜单 · {len(events)} 项重要变化**\n"
+                    f"检查时间：{current_snapshot['fetched_at']}"
+                ),
+            },
+        }
+    ]
+
+    for slug, definition in BOARDS.items():
+        board_events = [event for event in events if event.board == slug]
+        if not board_events:
+            continue
+        publish_date = current_snapshot["boards"][slug].get("publish_date") or "未知"
+        details = "\n".join(f"- {event_text(event)}" for event in board_events)
+        elements.extend(
+            [
+                {"tag": "hr"},
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": (
+                            f"**{definition['label']}** · 数据发布日期 {publish_date}\n"
+                            f"{details}\n"
+                            f"[查看 Arena 原榜单]({definition['url']})"
+                        ),
+                    },
+                },
+            ]
+        )
+
+    elements.extend(
+        [
+            {"tag": "hr"},
+            {
+                "tag": "note",
+                "elements": [
+                    {
+                        "tag": "plain_text",
+                        "content": (
+                            "V1 只通知新模型、模型消失、榜首变化、"
+                            "进入/跌出 Top 3 或 Top 10。"
+                        ),
+                    }
+                ],
+            },
+        ]
+    )
+    report_date = str(current_snapshot["fetched_at"])[:10]
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "template": "blue",
+            "title": {
+                "tag": "plain_text",
+                "content": f"Arena 榜单变动简报 · {report_date}",
+            },
+        },
+        "elements": elements,
+    }
+
+
+def build_feishu_test_card(now: datetime) -> dict[str, Any]:
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "template": "green",
+            "title": {
+                "tag": "plain_text",
+                "content": "Arena 榜单监控已接入",
+            },
+        },
+        "elements": [
+            {
+                "tag": "div",
+                "text": {
+                    "tag": "lark_md",
+                    "content": (
+                        "**飞书通知测试成功。**\n"
+                        "以后只有新模型、模型消失、榜首变化、"
+                        "进入/跌出 Top 3 或 Top 10 时才会推送。"
+                    ),
+                },
+            },
+            {
+                "tag": "note",
+                "elements": [
+                    {
+                        "tag": "plain_text",
+                        "content": f"测试时间：{iso_utc(now)}",
+                    }
+                ],
+            },
+        ],
+    }
+
+
 def require_env(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
-        raise RuntimeError(f"发送邮件缺少环境变量：{name}")
+        raise RuntimeError(f"缺少环境变量：{name}")
     return value
+
+
+def send_feishu_card(
+    webhook_url: str,
+    card: dict[str, Any],
+    post: Callable[[str, dict[str, Any]], dict[str, Any]] = post_json,
+) -> None:
+    response = post(webhook_url, {"msg_type": "interactive", "card": card})
+    code = response.get("code", response.get("StatusCode"))
+    if code != 0:
+        message = response.get("msg", response.get("StatusMessage", "未知错误"))
+        raise RuntimeError(f"飞书机器人返回错误 {code}：{message}")
+
+
+def send_feishu(
+    events: list[ChangeEvent],
+    current_snapshot: dict[str, Any],
+) -> None:
+    webhook_url = require_env("ARENA_FEISHU_WEBHOOK_URL")
+    send_feishu_card(webhook_url, build_feishu_card(events, current_snapshot))
 
 
 def send_email(subject: str, markdown_body: str, html_body: str) -> None:
@@ -519,8 +664,8 @@ def run_check(args: argparse.Namespace) -> int:
         print("Arena 5 类榜单没有发布新数据；未生成简报。")
         return 0
 
-    snapshot_path = save_snapshot(current, data_dir)
     if previous is None:
+        snapshot_path = save_snapshot(current, data_dir)
         baseline = baseline_markdown(current)
         report_path = report_dir / f"baseline-{now.date().isoformat()}.md"
         atomic_write_text(report_path, baseline)
@@ -530,6 +675,7 @@ def run_check(args: argparse.Namespace) -> int:
 
     events = detect_changes(previous, current, aliases)
     if not events:
+        snapshot_path = save_snapshot(current, data_dir)
         print(f"榜单数据已更新并保存：{snapshot_path}")
         print("没有命中 V1 的 4 类重要变化；未生成简报。")
         return 0
@@ -542,15 +688,31 @@ def run_check(args: argparse.Namespace) -> int:
     atomic_write_text(markdown_path, markdown)
     atomic_write_text(html_path, html_body)
 
+    sent_channels: list[str] = []
     if args.send_email:
         changed_board_count = len({event.board for event in events})
         subject = f"[Arena 榜单] {now.date().isoformat()}：{changed_board_count} 类榜单有重要变化"
         send_email(subject, markdown, html_body)
-        print(f"邮件已发送，共 {len(events)} 项重要变化。")
+        sent_channels.append("邮件")
+    if args.send_feishu:
+        send_feishu(events, current)
+        sent_channels.append("飞书")
+
+    snapshot_path = save_snapshot(current, data_dir)
+    if sent_channels:
+        print(f"{'、'.join(sent_channels)}已发送，共 {len(events)} 项重要变化。")
     else:
-        print("检测到重要变化；未启用邮件发送。")
+        print("检测到重要变化；已生成简报，但未启用外部通知。")
+    print(f"榜单快照：{snapshot_path}")
     print(f"Markdown 简报：{markdown_path}")
     print(f"HTML 简报：{html_path}")
+    return 0
+
+
+def run_feishu_test() -> int:
+    webhook_url = require_env("ARENA_FEISHU_WEBHOOK_URL")
+    send_feishu_card(webhook_url, build_feishu_test_card(utc_now()))
+    print("飞书测试消息已发送。")
     return 0
 
 
@@ -559,14 +721,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "command",
         nargs="?",
-        choices=("check",),
+        choices=("check", "test-feishu"),
         default="check",
-        help="拉取、对比并按需生成简报",
+        help="检查榜单，或发送飞书测试消息",
     )
     parser.add_argument("--data-dir", default="data", help="快照目录")
     parser.add_argument("--report-dir", default="reports", help="简报目录")
     parser.add_argument("--aliases", default="config/model_aliases.json", help="模型别名 JSON")
     parser.add_argument("--send-email", action="store_true", help="检测到变化时通过 SMTP 发信")
+    parser.add_argument("--send-feishu", action="store_true", help="检测到变化时推送飞书卡片")
     return parser
 
 
@@ -574,6 +737,8 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
     try:
+        if args.command == "test-feishu":
+            return run_feishu_test()
         return run_check(args)
     except (RuntimeError, ValueError, json.JSONDecodeError) as exc:
         print(f"错误：{exc}", file=sys.stderr)

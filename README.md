@@ -41,7 +41,8 @@ python3 src/arena_monitor.py check
 - 官方数据没有变化：不写新快照，不生成简报；
 - 数据有变化但未命中 4 类事件：只更新快照；
 - 命中事件：在 `reports/` 生成 Markdown 和 HTML 简报；
-- 加上 `--send-email`：在命中事件时发送邮件。
+- 加上 `--send-email`：在命中事件时发送邮件；
+- 加上 `--send-feishu`：在命中事件时发送飞书消息卡片。
 
 ## 当前已启用的每日任务
 
@@ -52,6 +53,26 @@ Codex 中已经启用“**Arena 五类榜单每日监控**”：
 - 只有命中 4 类重要变化时，才通过已连接的 Gmail 发给当前账户自己；
 - 首次基线、无新数据或只有普通名次变化时，不发邮件；
 - 采集或发信失败时会明确报错，不会伪装成“无变化”。
+
+## 飞书通知
+
+GitHub Actions 已接入飞书自定义机器人。Webhook 通过仓库 Secret
+`ARENA_FEISHU_WEBHOOK_URL` 注入，不会出现在代码、日志、快照或 Git 历史中。
+
+有重要变化时，飞书会收到一张按榜单分组的消息卡片，包含：
+
+- 发生变化的榜单和数据发布日期；
+- 模型名称及变化前后排名；
+- Arena 原榜单链接；
+- 本次命中的事件数量。
+
+无变化、只有普通排名波动或首次建立基线时，不发送飞书消息。本地环境配置好
+`ARENA_FEISHU_WEBHOOK_URL` 后可以执行：
+
+```bash
+python3 src/arena_monitor.py test-feishu
+python3 src/arena_monitor.py check --send-feishu
+```
 
 ## 独立 SMTP 方式（可选）
 
@@ -78,7 +99,7 @@ python3 src/arena_monitor.py check --send-email
 使用时：
 
 1. 把本目录提交到一个私有 GitHub 仓库。
-2. 在仓库 Secrets 中添加上述邮件变量。
+2. 在仓库 Secrets 中添加 `ARENA_FEISHU_WEBHOOK_URL`；如果还需要 SMTP 邮件，再添加上述邮件变量。
 3. 手动运行一次 workflow，建立初始基线。
 4. 之后每天自动检查；无重要变化时不发邮件。
 

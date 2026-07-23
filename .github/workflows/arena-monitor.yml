@@ -5,6 +5,12 @@ on:
     # 北京时间每天 09:00
     - cron: "0 1 * * *"
   workflow_dispatch:
+    inputs:
+      test_feishu:
+        description: "Send a Feishu connection test"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -20,6 +26,7 @@ jobs:
           python-version: "3.12"
 
       - name: Check Arena leaderboards
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.test_feishu != true }}
         env:
           ARENA_SMTP_HOST: ${{ secrets.ARENA_SMTP_HOST }}
           ARENA_SMTP_PORT: ${{ secrets.ARENA_SMTP_PORT }}
@@ -28,14 +35,25 @@ jobs:
           ARENA_SMTP_PASSWORD: ${{ secrets.ARENA_SMTP_PASSWORD }}
           ARENA_MAIL_FROM: ${{ secrets.ARENA_MAIL_FROM }}
           ARENA_MAIL_TO: ${{ secrets.ARENA_MAIL_TO }}
+          ARENA_FEISHU_WEBHOOK_URL: ${{ secrets.ARENA_FEISHU_WEBHOOK_URL }}
         run: |
+          args=()
           if [[ -n "$ARENA_SMTP_HOST" && -n "$ARENA_SMTP_USERNAME" && -n "$ARENA_SMTP_PASSWORD" && -n "$ARENA_MAIL_FROM" && -n "$ARENA_MAIL_TO" ]]; then
-            python src/arena_monitor.py check --send-email
-          else
-            python src/arena_monitor.py check
+            args+=(--send-email)
           fi
+          if [[ -n "$ARENA_FEISHU_WEBHOOK_URL" ]]; then
+            args+=(--send-feishu)
+          fi
+          python src/arena_monitor.py check "${args[@]}"
+
+      - name: Test Feishu notification
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.test_feishu == true }}
+        env:
+          ARENA_FEISHU_WEBHOOK_URL: ${{ secrets.ARENA_FEISHU_WEBHOOK_URL }}
+        run: python src/arena_monitor.py test-feishu
 
       - name: Persist snapshots and reports
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.test_feishu != true }}
         run: |
           git config user.name "arena-monitor"
           git config user.email "arena-monitor@users.noreply.github.com"
