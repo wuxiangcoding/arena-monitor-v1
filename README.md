@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | [English](README.en.md) | [日本語](README.ja.md)
 
-这是从《Arena 榜单分析与监控》对话中收敛出的首版：每天检查 5 个 Arena 一级榜单，只在命中 4 类高价值变化时生成简报。
+这是一个轻量级监控工具：每天检查 5 个 Arena 一级榜单，只在命中 4 类高价值变化时生成简报。
 
 ## 首版范围
 
@@ -46,19 +46,21 @@ python3 src/arena_monitor.py check
 - 加上 `--send-email`：在命中事件时发送邮件；
 - 加上 `--send-feishu`：在命中事件时发送飞书消息卡片。
 
-## 当前已启用的每日任务
+## 定时运行
 
-Codex 中已经启用“**Arena 五类榜单每日监控**”：
+监控程序不依赖常驻服务，可由 cron、systemd timer、GitHub Actions 或其他调度器
+每天调用。以北京时间每天 09:00 运行为例：
 
-- 北京时间每天 09:00 运行；
-- 在本目录执行监控程序；
-- 只有命中 4 类重要变化时，才通过已连接的 Gmail 发给当前账户自己；
-- 首次基线、无新数据或只有普通名次变化时，不发邮件；
-- 采集或发信失败时会明确报错，不会伪装成“无变化”。
+```bash
+0 1 * * * cd /path/to/arena-monitor-v1 && python3 src/arena_monitor.py check --send-email
+```
+
+首次基线、无新数据或只有普通名次变化时，不会生成变化简报；采集或通知失败会明确
+报错，不会伪装成“无变化”。
 
 ## 飞书通知
 
-GitHub Actions 已接入飞书自定义机器人。Webhook 通过仓库 Secret
+飞书通知可通过自定义机器人接入。Webhook 通过环境变量或仓库 Secret
 `ARENA_FEISHU_WEBHOOK_URL` 注入，不会出现在代码、日志、快照或 Git 历史中。
 
 有重要变化时，飞书会收到一张按榜单分组的消息卡片，包含：
@@ -78,7 +80,8 @@ python3 src/arena_monitor.py check --send-feishu
 
 ## 独立 SMTP 方式（可选）
 
-如果以后不通过 Codex 运行，也可以使用程序内置的 SMTP 发信。复制 `.env.example` 中的变量到本机环境或 GitHub Actions Secrets。必填项：
+使用程序内置的 SMTP 发信时，可将 `.env.example` 中的变量配置到本机环境或
+GitHub Actions Secrets。必填项：
 
 - `ARENA_SMTP_HOST`
 - `ARENA_SMTP_PORT`
@@ -96,11 +99,11 @@ python3 src/arena_monitor.py check --send-email
 
 ## GitHub Actions 方式（可选）
 
-`.github/workflows/arena-monitor.yml` 已配置为北京时间每天 09:00 检查一次，也支持手动触发。它会把历史快照和生成的简报提交回私有仓库，因此仓库的 Actions 需要有写入权限。
+`.github/workflows/arena-monitor.yml` 已配置为北京时间每天 09:00 检查一次，也支持手动触发。它会把历史快照和生成的简报提交回当前仓库，因此仓库的 Actions 需要有写入权限。
 
 使用时：
 
-1. 把本目录提交到一个私有 GitHub 仓库。
+1. 将项目提交到 GitHub 仓库。
 2. 在仓库 Secrets 中添加 `ARENA_FEISHU_WEBHOOK_URL`；如果还需要 SMTP 邮件，再添加上述邮件变量。
 3. 手动运行一次 workflow，建立初始基线。
 4. 之后每天自动检查；无重要变化时不发邮件。

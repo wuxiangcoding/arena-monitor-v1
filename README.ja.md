@@ -2,9 +2,8 @@
 
 [简体中文](README.md) | [English](README.en.md) | [日本語](README.ja.md)
 
-これは「Arena リーダーボード分析と監視」の議論からまとめた初版です。毎日
-Arena のトップレベル 5 部門を確認し、価値の高い 4 種類の変化が発生した場合に
-のみダイジェストを生成します。
+これは、毎日 Arena のトップレベル 5 部門を確認し、価値の高い 4 種類の変化が
+発生した場合にのみダイジェストを生成する軽量な監視ツールです。
 
 ## V1 の対象範囲
 
@@ -52,21 +51,23 @@ python3 src/arena_monitor.py check
 - `--send-feishu` を指定すると、変化の発生時に Feishu のインタラクティブカードを
   送信します。
 
-## 現在有効な日次タスク
+## 定期実行
 
-Codex では「**Arena 5部門リーダーボード日次監視**」が有効になっています。
+監視プログラムは常駐サービスを必要としません。cron、systemd timer、
+GitHub Actions、その他のスケジューラから 1 日 1 回実行できます。北京時間の
+毎日 09:00 に実行する例:
 
-- 北京時間の毎日 09:00 に実行されます。
-- このディレクトリで監視プログラムを実行します。
-- 価値の高い 4 種類の変化が発生した場合にのみ、接続済みの Gmail から現在の
-  アカウント自身に送信します。
-- 初回ベースライン、データ未更新、通常の順位変動だけの場合は送信しません。
-- 取得または通知に失敗した場合は明示的にエラーを報告し、「変化なし」として
-  扱いません。
+```bash
+0 1 * * * cd /path/to/arena-monitor-v1 && python3 src/arena_monitor.py check --send-email
+```
+
+初回ベースライン、データ未更新、通常の順位変動だけの場合は変化ダイジェストを
+生成しません。取得または通知に失敗した場合は明示的にエラーを報告し、
+「変化なし」として扱いません。
 
 ## Feishu 通知
 
-GitHub Actions は Feishu のカスタムボットに接続されています。Webhook は
+Feishu 通知はカスタムボットから設定できます。Webhook は環境変数または
 リポジトリ Secret `ARENA_FEISHU_WEBHOOK_URL` から注入され、コード、ログ、
 スナップショット、Git 履歴には含まれません。
 
@@ -89,9 +90,8 @@ python3 src/arena_monitor.py check --send-feishu
 
 ## 独立した SMTP 設定（任意）
 
-今後 Codex 経由で実行しない場合は、プログラム内蔵の SMTP 送信機能を利用できます。
-`.env.example` の変数をローカル環境または GitHub Actions Secrets に設定してください。
-必須項目:
+プログラム内蔵の SMTP 送信機能を利用する場合は、`.env.example` の変数をローカル
+環境または GitHub Actions Secrets に設定してください。必須項目:
 
 - `ARENA_SMTP_HOST`
 - `ARENA_SMTP_PORT`
@@ -113,12 +113,12 @@ python3 src/arena_monitor.py check --send-email
 
 `.github/workflows/arena-monitor.yml` は、北京時間の毎日 09:00 に 1 回確認し、
 手動実行にも対応するよう設定されています。履歴スナップショットと生成した
-ダイジェストをプライベートリポジトリへコミットして戻すため、リポジトリの
-Actions には書き込み権限が必要です。
+ダイジェストを現在のリポジトリへコミットして戻すため、リポジトリの Actions
+には書き込み権限が必要です。
 
 使用方法:
 
-1. このディレクトリをプライベート GitHub リポジトリへコミットします。
+1. プロジェクトを GitHub リポジトリへプッシュします。
 2. リポジトリ Secret に `ARENA_FEISHU_WEBHOOK_URL` を追加します。メールも必要な
    場合は、上記の SMTP 変数も追加します。
 3. workflow を手動で 1 回実行し、初期ベースラインを作成します。

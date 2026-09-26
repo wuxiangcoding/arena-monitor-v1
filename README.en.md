@@ -2,9 +2,9 @@
 
 [简体中文](README.md) | [English](README.en.md) | [日本語](README.ja.md)
 
-This is the first version distilled from the "Arena Leaderboard Analysis and
-Monitoring" discussion. It checks five top-level Arena leaderboards every day
-and generates a digest only when one of four high-value change types occurs.
+This is a lightweight monitor that checks five top-level Arena leaderboards
+every day and generates a digest only when one of four high-value change types
+occurs.
 
 ## V1 Scope
 
@@ -54,24 +54,26 @@ On subsequent runs, the monitor:
 - Sends a Feishu interactive card when a change occurs if `--send-feishu` is
   provided.
 
-## Currently Enabled Daily Task
+## Scheduled Runs
 
-The "**Arena Five-Leaderboard Daily Monitor**" task is enabled in Codex:
+The monitor does not require a long-running service. It can run once per day
+through cron, a systemd timer, GitHub Actions, or another scheduler. For example,
+to run every day at 09:00 Beijing time:
 
-- It runs every day at 09:00 Beijing time;
-- It runs the monitor from this directory;
-- It sends mail through the connected Gmail account to the current account only
-  when one of the four high-value change types occurs;
-- It does not send mail for the initial baseline, unchanged data, or ordinary
-  rank changes;
-- Collection and notification failures are reported explicitly instead of
-  being treated as "no changes."
+```bash
+0 1 * * * cd /path/to/arena-monitor-v1 && python3 src/arena_monitor.py check --send-email
+```
+
+The initial baseline, unchanged data, and ordinary rank changes do not generate
+a change digest. Collection and notification failures are reported explicitly
+instead of being treated as "no changes."
 
 ## Feishu Notifications
 
-GitHub Actions is connected to a Feishu custom bot. The webhook is injected
-through the repository secret `ARENA_FEISHU_WEBHOOK_URL` and is not present in
-the code, logs, snapshots, or Git history.
+Feishu notifications can be configured through a custom bot. The webhook is
+injected through an environment variable or the repository secret
+`ARENA_FEISHU_WEBHOOK_URL` and is not present in the code, logs, snapshots, or
+Git history.
 
 When an important change occurs, Feishu receives a card grouped by leaderboard
 that contains:
@@ -92,9 +94,9 @@ python3 src/arena_monitor.py check --send-feishu
 
 ## Standalone SMTP Setup (Optional)
 
-If you do not want to run the monitor through Codex in the future, you can use
-the built-in SMTP sender. Copy the variables in `.env.example` into your local
-environment or GitHub Actions Secrets. Required variables:
+To send notifications through the built-in SMTP sender, configure the variables
+in `.env.example` in your local environment or GitHub Actions Secrets. Required
+variables:
 
 - `ARENA_SMTP_HOST`
 - `ARENA_SMTP_PORT`
@@ -116,12 +118,12 @@ python3 src/arena_monitor.py check --send-email
 
 `.github/workflows/arena-monitor.yml` is configured to check once per day at
 09:00 Beijing time and also supports manual runs. It commits historical
-snapshots and generated digests back to the private repository, so repository
+snapshots and generated digests back to the current repository, so repository
 Actions must have write permission.
 
 To use it:
 
-1. Commit this directory to a private GitHub repository.
+1. Push the project to a GitHub repository.
 2. Add `ARENA_FEISHU_WEBHOOK_URL` to the repository Secrets. Add the SMTP
    variables above if email is also required.
 3. Run the workflow manually once to create the initial baseline.
