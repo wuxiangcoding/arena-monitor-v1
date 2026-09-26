@@ -1,5 +1,7 @@
 # Arena 五类榜单监控 V1
 
+[简体中文](README.md) | [English](README.en.md) | [日本語](README.ja.md)
+
 这是从《Arena 榜单分析与监控》对话中收敛出的首版：每天检查 5 个 Arena 一级榜单，只在命中 4 类高价值变化时生成简报。
 
 ## 首版范围
